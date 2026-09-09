@@ -13,15 +13,11 @@ on:
     branches:
       - tra
   workflow_dispatch:
-    inputs:
-      environment:
-        description: Railway environment to deploy
-        type: choice
-        options: [staging, production]
-        default: staging
 
+# TRA Docs is production-only: a wiki's state is its content, so there is no
+# meaningful staging copy. Push to `tra` deploys production.
 concurrency:
-  group: railway-outline-${{ inputs.environment || 'staging' }}
+  group: railway-outline-production
   cancel-in-progress: false
 
 jobs:
@@ -29,7 +25,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
-      ENVIRONMENT: ${{ inputs.environment || 'staging' }}
+      ENVIRONMENT: production
       RAILWAY_PROJECT_ID: 6e000682-0600-46fb-8f4e-559b4dbcb1d6
     steps:
       - uses: actions/checkout@v4
