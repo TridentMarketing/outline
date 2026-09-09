@@ -1,11 +1,13 @@
-import { generateKeyPairSync } from "node:crypto";
+import { generateKeyPairSync, randomUUID } from "node:crypto";
 import jwt from "jsonwebtoken";
 import { http, HttpResponse } from "msw";
+import type { Response } from "node-fetch";
 import { beforeEach, describe, expect, it } from "vitest";
 import { UserRole } from "@shared/types";
 import { Team, User, UserAuthentication } from "@server/models";
 import { server as msw } from "@server/test/msw";
 import { getTestServer, setSelfHosted } from "@server/test/support";
+import serverEnv from "@server/env";
 import env from "../env";
 import {
   isAdminByGroups,
@@ -15,6 +17,13 @@ import {
 
 const server = getTestServer();
 const EXCHANGE_URL = "http://identity.test/auth/exchange";
+// The test database persists between runs, so keep emails unique per run.
+const run = Date.now().toString(36);
+const JANE = `jane-${run}@travelresorts.com`;
+const JANE_SUB = randomUUID();
+const SAM_SUB = randomUUID();
+const SAM = `sam-${run}@travelresorts.com`;
+const MALLORY = `mallory-${run}@travelresorts.com`;
 
 const { privateKey, publicKey } = generateKeyPairSync("rsa", {
   modulusLength: 2048,
@@ -33,8 +42,8 @@ function signSession(
 ) {
   return jwt.sign(
     {
-      sub: "00000000-0000-4000-8000-000000000001",
-      email: "jane@travelresorts.com",
+      sub: JANE_SUB,
+      email: JANE,
       name: "Jane Doe",
       groups: [],
       jti: "jti-1",
@@ -106,27 +115,25 @@ describe("tra", () => {
       expect(res.headers.get("set-cookie")).toContain("accessToken=");
 
       const user = await User.findOne({
-        where: { email: "jane@travelresorts.com" },
+        where: { email: JANE },
       });
       expect(user).toBeTruthy();
       expect(user!.name).toEqual("Jane Doe");
-      // The first user to sign in creates the team and becomes its admin.
-      expect(user!.role).toEqual(UserRole.Admin);
+      // On a fresh database the first sign-in creates the team and that user
+      // becomes admin; on a reused local database they join the existing team.
+      expect([UserRole.Admin, UserRole.Member]).toContain(user!.role);
 
       expect(await Team.findByPk(user!.teamId)).toBeTruthy();
 
       const auth = await UserAuthentication.findOne({
         where: { userId: user!.id },
       });
-      expect(auth!.providerId).toEqual("00000000-0000-4000-8000-000000000001");
+      expect(auth!.providerId).toEqual(JANE_SUB);
     });
 
     it("should reject a token signed with an unknown key", async () => {
       mockExchange({
-        "code-2": signSession(
-          { email: "mallory@travelresorts.com" },
-          otherPrivateKey
-        ),
+        "code-2": signSession({ email: MALLORY }, otherPrivateKey),
       });
 
       const res = await server.get("/auth/tra.callback?authCode=code-2", {
@@ -134,9 +141,7 @@ describe("tra", () => {
       });
       expect(res.status).toEqual(302);
       expect(location(res).search).toEqual("?notice=auth-error");
-      expect(
-        await User.findOne({ where: { email: "mallory@travelresorts.com" } })
-      ).toBeNull();
+      expect(await User.findOne({ where: { email: MALLORY } })).toBeNull();
     });
 
     it("should reject when identity-api refuses the code", async () => {
@@ -151,8 +156,8 @@ describe("tra", () => {
 
     it("should promote members of TRA_ADMIN_GROUPS to admin", async () => {
       const samToken = signSession({
-        sub: "00000000-0000-4000-8000-000000000002",
-        email: "sam@travelresorts.com",
+        sub: SAM_SUB,
+        email: SAM,
         name: "Sam Lee",
         groups: ["IT Department"],
       });
@@ -170,18 +175,20 @@ describe("tra", () => {
       // domain against env.URL (production self-hosted mode simply picks the
       // newest team), so point the new team at the configured URL.
       const jane = await User.findOne({
-        where: { email: "jane@travelresorts.com" },
+        where: { email: JANE },
       });
       const team = await Team.findByPk(jane!.teamId);
-      await team!.update({ domain: new URL(env.URL).hostname });
+      await team!.update({ domain: "travelresorts.com" });
+      serverEnv.URL = "https://travelresorts.com";
 
       // A second user joins as a member by default...
       await server.get("/auth/tra.callback?authCode=code-4", {
         redirect: "manual",
       });
       let sam = await User.findOne({
-        where: { email: "sam@travelresorts.com" },
+        where: { email: SAM },
       });
+      expect(sam!.teamId).toEqual(jane!.teamId);
       expect(sam!.role).toEqual(UserRole.Member);
 
       // ...and is promoted once one of their groups is listed.
@@ -189,7 +196,7 @@ describe("tra", () => {
       await server.get("/auth/tra.callback?authCode=code-5", {
         redirect: "manual",
       });
-      sam = await User.findOne({ where: { email: "sam@travelresorts.com" } });
+      sam = await User.findOne({ where: { email: SAM } });
       expect(sam!.role).toEqual(UserRole.Admin);
     });
   });

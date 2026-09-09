@@ -57,30 +57,39 @@ router.get(`${config.id}.callback`, async (ctx: Context) => {
     const team = await getTeamFromContext(ctx);
     const identityHost = new URL(env.TRA_IDENTITY_API_URL!).hostname;
 
-    const result = await accountProvisioner(createContext({ ip: ctx.ip }), {
-      team: {
-        teamId: team?.id,
-        name: env.APP_NAME,
-        domain,
-        subdomain: slugifyDomain(domain),
-      },
-      user: {
-        name: claims.name,
-        email,
-        // The email comes from the Entra directory via identity-api.
-        emailVerified: true,
-      },
-      authenticationProvider: {
-        name: config.id,
-        providerId: identityHost,
-      },
-      authentication: {
-        providerId: claims.sub,
-        accessToken: token,
-        expiresIn,
-        scopes: [],
-      },
-    });
+    const result = await accountProvisioner(
+      createContext({
+        ip: ctx.ip,
+        // A signed-in admin reaching this route is connecting the provider to
+        // their existing team, mirroring the bundled OAuth providers.
+        user: ctx.state?.auth?.user,
+        authType: ctx.state?.auth?.type,
+      }),
+      {
+        team: {
+          teamId: team?.id,
+          name: env.APP_NAME,
+          domain,
+          subdomain: slugifyDomain(domain),
+        },
+        user: {
+          name: claims.name,
+          email,
+          // The email comes from the Entra directory via identity-api.
+          emailVerified: true,
+        },
+        authenticationProvider: {
+          name: config.id,
+          providerId: identityHost,
+        },
+        authentication: {
+          providerId: claims.sub,
+          accessToken: token,
+          expiresIn,
+          scopes: [],
+        },
+      }
+    );
 
     if (isAdminByGroups(claims.groups) && result.user.role !== UserRole.Admin) {
       await result.user.update({ role: UserRole.Admin });
