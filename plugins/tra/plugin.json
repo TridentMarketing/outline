@@ -1,0 +1,6 @@
+{
+  "id": "tra",
+  "name": "TRA",
+  "priority": 5,
+  "description": "Adds TRA central authentication (identity-api, Entra ID) as a sign-in provider."
+}
