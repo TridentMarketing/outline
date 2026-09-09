@@ -2,10 +2,9 @@
 # GitHub Actions drives, Railway obeys (auto-deploy stays OFF). `railway up`
 # uploads this checkout and Railway builds it with Dockerfile.summit.
 #
-# Secrets/vars on this repo:
-#   RAILWAY_API_TOKEN          Railway account token (CLI reads account tokens
-#                              from RAILWAY_API_TOKEN, project tokens from RAILWAY_TOKEN)
-#   RAILWAY_SUMMIT_PROJECT_ID  6e000682-0600-46fb-8f4e-559b4dbcb1d6 (repo variable)
+# Auth: the org-level RAILWAY_TOKEN secret, shared by every TRA repo — no
+# per-repo secrets needed. The summit project id is not secret and is pinned
+# below.
 name: Deploy to Summit
 
 on:
@@ -30,6 +29,7 @@ jobs:
     timeout-minutes: 45
     env:
       ENVIRONMENT: ${{ inputs.environment || 'staging' }}
+      RAILWAY_PROJECT_ID: 6e000682-0600-46fb-8f4e-559b4dbcb1d6
     steps:
       - uses: actions/checkout@v4
 
@@ -39,5 +39,4 @@ jobs:
       - name: Deploy outline (${{ env.ENVIRONMENT }})
         run: railway up --service outline --environment "$ENVIRONMENT" --ci
         env:
-          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
-          RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_SUMMIT_PROJECT_ID }}
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
